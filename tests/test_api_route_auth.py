@@ -20,9 +20,10 @@ def test_privileged_routes_require_authentication():
 
     with TestClient(app) as client:
         routes = [
-            ("POST", "/tools/run"),
             ("POST", "/search"),
             ("POST", "/ask"),
+            ("POST", "/v1/chat/completions"),
+            ("GET", "/v1/models"),
             ("POST", "/documents"),
             ("GET", "/documents"),
             ("GET", "/documents/test-document"),

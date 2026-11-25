@@ -2,41 +2,33 @@
 from __future__ import annotations
 
 import os
-from time import perf_counter
+from pathlib import Path
 from typing import Literal
-from uuid import uuid4
 
 import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from app.audit import write_ask_audit
-from app.ingestion import ingest_document
-from app.rag import (
-    VLLM_MODEL,
-    generate_answer,
-    retrieve,
-    retrieve_evidence,
-    source_label,
+from app.ask_pipeline import (
+    INSUFFICIENT_EVIDENCE_MESSAGE,
+    run_grounded_ask,
 )
+from app.ingestion import ingest_document
+from app.openai_compat import router as openai_compat_router
+from app.rag import retrieve, VLLM_MODEL
 from app.security.dependencies import require_api_key_principal
-from app.typed_atomic_sufficiency import assess_typed_atomic_sufficiency
 
 load_dotenv()
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-
-INSUFFICIENT_EVIDENCE_MESSAGE = (
-    "I don't have sufficient evidence in the "
-    "retrieved sources to answer this question."
-)
 
 app = FastAPI(
     title="Private AI RAG",
     description="Self-hosted evidence-grounded document Q&A",
     version="0.1.0",
 )
+app.include_router(openai_compat_router)
 
 
 class DocumentSummary(BaseModel):
@@ -105,18 +97,6 @@ class AskResponse(BaseModel):
     timings: AskTimings
 
 
-def to_evidence_source(source: dict) -> dict:
-    return {
-        "label": source_label(source),
-        "filename": source["filename"],
-        "chunk_index": source["chunk_index"],
-        "page_number": source["page_number"],
-        "content": source["content"],
-        "excerpt": source["content"],
-        "similarity": source["similarity"],
-    }
-
-
 @app.get("/health")
 def health():
     database = False
@@ -140,85 +120,13 @@ def search(request: SearchRequest):
 
 @app.post("/ask", response_model=AskResponse, dependencies=[Depends(require_api_key_principal)])
 def ask(request: AskRequest):
-    request_id = str(uuid4())
-    total_started = perf_counter()
     try:
-        retrieval_started = perf_counter()
-        sources = retrieve_evidence(request.question)
-        retrieval_ms = (perf_counter() - retrieval_started) * 1000
-
-        sufficiency_started = perf_counter()
-        sufficiency = assess_typed_atomic_sufficiency(request.question, sources)
-        sufficiency_ms = (perf_counter() - sufficiency_started) * 1000
-
-        response_sources = [to_evidence_source(source) for source in sources]
-        source_labels = [source_label(source) for source in sources]
-
-        if not sufficiency.sufficient:
-            total_ms = (perf_counter() - total_started) * 1000
-            write_ask_audit(
-                request_id=request_id,
-                question=request.question,
-                status="insufficient_evidence",
-                answer=INSUFFICIENT_EVIDENCE_MESSAGE,
-                sufficient=False,
-                source_labels=source_labels,
-                model=VLLM_MODEL,
-                retrieval_ms=retrieval_ms,
-                sufficiency_ms=sufficiency_ms,
-                generation_ms=None,
-                total_ms=total_ms,
-            )
-            return {
-                "request_id": request_id,
-                "status": "insufficient_evidence",
-                "question": request.question,
-                "answer": INSUFFICIENT_EVIDENCE_MESSAGE,
-                "sources": response_sources,
-                "sufficiency": {"sufficient": False},
-                "timings": {
-                    "retrieval_ms": retrieval_ms,
-                    "sufficiency_ms": sufficiency_ms,
-                    "generation_ms": None,
-                    "total_ms": total_ms,
-                },
-            }
-
-        generation_started = perf_counter()
-        answer = generate_answer(request.question, sources)
-        generation_ms = (perf_counter() - generation_started) * 1000
-        total_ms = (perf_counter() - total_started) * 1000
-        write_ask_audit(
-            request_id=request_id,
-            question=request.question,
-            status="answered",
-            answer=answer,
-            sufficient=True,
-            source_labels=source_labels,
-            model=VLLM_MODEL,
-            retrieval_ms=retrieval_ms,
-            sufficiency_ms=sufficiency_ms,
-            generation_ms=generation_ms,
-            total_ms=total_ms,
-        )
-        return {
-            "request_id": request_id,
-            "status": "answered",
-            "question": request.question,
-            "answer": answer,
-            "sources": response_sources,
-            "sufficiency": {"sufficient": True},
-            "timings": {
-                "retrieval_ms": retrieval_ms,
-                "sufficiency_ms": sufficiency_ms,
-                "generation_ms": generation_ms,
-                "total_ms": total_ms,
-            },
-        }
+        return run_grounded_ask(request.question, model=VLLM_MODEL)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from None
+
 
 @app.post("/documents", dependencies=[Depends(require_api_key_principal)],)
 async def upload_document(
@@ -230,7 +138,7 @@ async def upload_document(
         ".pdf",
     }
 
-    extension = Path(file.filename).suffix.lower()
+    extension = Path(file.filename or "").suffix.lower()
 
     if extension not in allowed_extensions:
         raise HTTPException(

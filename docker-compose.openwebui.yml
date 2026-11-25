@@ -1,0 +1,34 @@
+# ChatGPT-style UI that talks to this repo's grounded RAG API.
+#
+# Prerequisites:
+#   1. RAG API running on the host (default http://127.0.0.1:8081)
+#   2. OPEN_WEBUI_OPENAI_API_KEY set to a raw Private AI API key
+#      whose sha256 is in PRIVATE_AI_API_KEYS_JSON
+#
+# Start:
+#   export OPEN_WEBUI_OPENAI_API_KEY='your-raw-api-key'
+#   docker compose -f docker-compose.openwebui.yml up -d
+#
+# UI: http://127.0.0.1:3000
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "${OPEN_WEBUI_PORT:-3000}:8080"
+    environment:
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: "${OPEN_WEBUI_OPENAI_API_BASE_URL:-http://host.docker.internal:8081/v1}"
+      OPENAI_API_KEY: "${OPEN_WEBUI_OPENAI_API_KEY:?Set OPEN_WEBUI_OPENAI_API_KEY to a Private AI API key}"
+      WEBUI_AUTH: "${WEBUI_AUTH:-true}"
+      # Keep env connection settings authoritative across restarts.
+      ENABLE_PERSISTENT_CONFIG: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - open-webui-data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:

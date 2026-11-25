@@ -53,10 +53,10 @@ class Insufficient:
     sufficient = False
 
 
-@patch("app.api.write_ask_audit")
-@patch("app.api.generate_answer")
-@patch("app.api.assess_typed_atomic_sufficiency")
-@patch("app.api.retrieve_evidence")
+@patch("app.ask_pipeline.write_ask_audit")
+@patch("app.ask_pipeline.generate_answer")
+@patch("app.ask_pipeline.assess_typed_atomic_sufficiency")
+@patch("app.ask_pipeline.retrieve_evidence")
 def test_ask_answered_contract(
     mock_retrieve,
     mock_sufficiency,
@@ -134,10 +134,10 @@ def test_ask_answered_contract(
     assert kwargs["total_ms"] == timings["total_ms"]  
 
 
-@patch("app.api.write_ask_audit")
-@patch("app.api.generate_answer")
-@patch("app.api.assess_typed_atomic_sufficiency")
-@patch("app.api.retrieve_evidence")
+@patch("app.ask_pipeline.write_ask_audit")
+@patch("app.ask_pipeline.generate_answer")
+@patch("app.ask_pipeline.assess_typed_atomic_sufficiency")
+@patch("app.ask_pipeline.retrieve_evidence")
 def test_ask_insufficient_evidence_contract(
     mock_retrieve,
     mock_sufficiency,
@@ -196,7 +196,7 @@ def test_ask_insufficient_evidence_contract(
     assert kwargs["generation_ms"] is None
     assert kwargs["total_ms"] == timings["total_ms"]
 
-@patch("app.api.write_ask_audit")
+@patch("app.ask_pipeline.write_ask_audit")
 def test_ask_rejects_empty_question(mock_audit):
     response = client.post(
         "/ask",
@@ -208,12 +208,12 @@ def test_ask_rejects_empty_question(mock_audit):
     
     
 @patch(
-    "app.api.write_ask_audit",
+    "app.ask_pipeline.write_ask_audit",
     side_effect=RuntimeError("audit database unavailable"),
 )
-@patch("app.api.generate_answer")
-@patch("app.api.assess_typed_atomic_sufficiency")
-@patch("app.api.retrieve_evidence")
+@patch("app.ask_pipeline.generate_answer")
+@patch("app.ask_pipeline.assess_typed_atomic_sufficiency")
+@patch("app.ask_pipeline.retrieve_evidence")
 def test_ask_fails_if_audit_write_fails(
     mock_retrieve,
     mock_sufficiency,
